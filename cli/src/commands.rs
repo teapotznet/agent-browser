@@ -485,14 +485,106 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 "set" => {
                     let name = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                         context: "cookies set".to_string(),
-                        usage: "cookies set <name> <value>",
+                        usage: "cookies set <name> <value> [--url <url>] [--domain <domain>] [--path <path>] [--httpOnly] [--secure] [--sameSite <Strict|Lax|None>] [--expires <timestamp>]",
                     })?;
                     let value = rest.get(2).ok_or_else(|| ParseError::MissingArguments {
                         context: "cookies set".to_string(),
-                        usage: "cookies set <name> <value>",
+                        usage: "cookies set <name> <value> [--url <url>] [--domain <domain>] [--path <path>] [--httpOnly] [--secure] [--sameSite <Strict|Lax|None>] [--expires <timestamp>]",
                     })?;
+
+                    let mut cookie = json!({ "name": name, "value": value });
+
+                    // Parse optional flags
+                    let mut i = 3;
+                    while i < rest.len() {
+                        match rest[i] {
+                            "--url" => {
+                                if let Some(url) = rest.get(i + 1) {
+                                    cookie["url"] = json!(url);
+                                    i += 2;
+                                } else {
+                                    return Err(ParseError::MissingArguments {
+                                        context: "cookies set --url".to_string(),
+                                        usage: "--url <url>",
+                                    });
+                                }
+                            }
+                            "--domain" => {
+                                if let Some(domain) = rest.get(i + 1) {
+                                    cookie["domain"] = json!(domain);
+                                    i += 2;
+                                } else {
+                                    return Err(ParseError::MissingArguments {
+                                        context: "cookies set --domain".to_string(),
+                                        usage: "--domain <domain>",
+                                    });
+                                }
+                            }
+                            "--path" => {
+                                if let Some(path) = rest.get(i + 1) {
+                                    cookie["path"] = json!(path);
+                                    i += 2;
+                                } else {
+                                    return Err(ParseError::MissingArguments {
+                                        context: "cookies set --path".to_string(),
+                                        usage: "--path <path>",
+                                    });
+                                }
+                            }
+                            "--httpOnly" => {
+                                cookie["httpOnly"] = json!(true);
+                                i += 1;
+                            }
+                            "--secure" => {
+                                cookie["secure"] = json!(true);
+                                i += 1;
+                            }
+                            "--sameSite" => {
+                                if let Some(same_site) = rest.get(i + 1) {
+                                    // Validate sameSite value
+                                    if *same_site == "Strict" || *same_site == "Lax" || *same_site == "None" {
+                                        cookie["sameSite"] = json!(same_site);
+                                        i += 2;
+                                    } else {
+                                        return Err(ParseError::MissingArguments {
+                                            context: "cookies set --sameSite".to_string(),
+                                            usage: "--sameSite <Strict|Lax|None>",
+                                        });
+                                    }
+                                } else {
+                                    return Err(ParseError::MissingArguments {
+                                        context: "cookies set --sameSite".to_string(),
+                                        usage: "--sameSite <Strict|Lax|None>",
+                                    });
+                                }
+                            }
+                            "--expires" => {
+                                if let Some(expires_str) = rest.get(i + 1) {
+                                    if let Ok(expires) = expires_str.parse::<i64>() {
+                                        cookie["expires"] = json!(expires);
+                                        i += 2;
+                                    } else {
+                                        return Err(ParseError::MissingArguments {
+                                            context: "cookies set --expires".to_string(),
+                                            usage: "--expires <timestamp>",
+                                        });
+                                    }
+                                } else {
+                                    return Err(ParseError::MissingArguments {
+                                        context: "cookies set --expires".to_string(),
+                                        usage: "--expires <timestamp>",
+                                    });
+                                }
+                            }
+                            _ => {
+                                // Unknown flag, skip it (or could error)
+                                i += 1;
+                            }
+                        }
+                    }
+
                     Ok(
-                        json!({ "id": id, "action": "cookies_set", "cookies": [{ "name": name, "value": value }] }),
+                        json!({ "id": id, "action": "cookies_set", "cookies": [cookie] }),
                     )
                 }
                 "clear" => Ok(json!({ "id": id, "action": "cookies_clear" })),
@@ -1252,6 +1344,102 @@ mod tests {
     fn test_cookies_clear() {
         let cmd = parse_command(&args("cookies clear"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "cookies_clear");
+    }
+
+    #[test]
+    fn test_cookies_set_with_url() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --url https://example.com"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
+    }
+
+    #[test]
+    fn test_cookies_set_with_domain() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --domain example.com"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["domain"], "example.com");
+    }
+
+    #[test]
+    fn test_cookies_set_with_path() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --path /api"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["path"], "/api");
+    }
+
+    #[test]
+    fn test_cookies_set_with_httponly() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --httpOnly"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["httpOnly"], true);
+    }
+
+    #[test]
+    fn test_cookies_set_with_secure() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --secure"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["secure"], true);
+    }
+
+    #[test]
+    fn test_cookies_set_with_samesite() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --sameSite Strict"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["sameSite"], "Strict");
+    }
+
+    #[test]
+    fn test_cookies_set_with_expires() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --expires 1234567890"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["expires"], 1234567890);
+    }
+
+    #[test]
+    fn test_cookies_set_with_multiple_flags() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --url https://example.com --httpOnly --secure --sameSite Lax"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
+        assert_eq!(cmd["cookies"][0]["httpOnly"], true);
+        assert_eq!(cmd["cookies"][0]["secure"], true);
+        assert_eq!(cmd["cookies"][0]["sameSite"], "Lax");
+    }
+
+    #[test]
+    fn test_cookies_set_with_all_flags() {
+        let cmd = parse_command(&args("cookies set mycookie myvalue --url https://example.com --domain example.com --path /api --httpOnly --secure --sameSite None --expires 9999999999"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "cookies_set");
+        assert_eq!(cmd["cookies"][0]["name"], "mycookie");
+        assert_eq!(cmd["cookies"][0]["value"], "myvalue");
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
+        assert_eq!(cmd["cookies"][0]["domain"], "example.com");
+        assert_eq!(cmd["cookies"][0]["path"], "/api");
+        assert_eq!(cmd["cookies"][0]["httpOnly"], true);
+        assert_eq!(cmd["cookies"][0]["secure"], true);
+        assert_eq!(cmd["cookies"][0]["sameSite"], "None");
+        assert_eq!(cmd["cookies"][0]["expires"], 9999999999i64);
+    }
+
+    #[test]
+    fn test_cookies_set_invalid_samesite() {
+        let result = parse_command(&args("cookies set mycookie myvalue --sameSite Invalid"), &default_flags());
+        assert!(result.is_err());
     }
 
     // === Storage Tests ===

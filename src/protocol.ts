@@ -31,6 +31,7 @@ const launchSchema = baseCommandSchema.extend({
       { message: 'CDP URL must start with ws://, wss://, http://, or https://' }
     )
     .optional(),
+  autoConnect: z.boolean().optional(),
   executablePath: z.string().optional(),
   extensions: z.array(z.string()).optional(),
   headers: z.record(z.string()).optional(),
@@ -63,6 +64,7 @@ const clickSchema = baseCommandSchema.extend({
   button: z.enum(['left', 'right', 'middle']).optional(),
   clickCount: z.number().positive().optional(),
   delay: z.number().nonnegative().optional(),
+  newTab: z.boolean().optional(),
 });
 
 const typeSchema = baseCommandSchema.extend({
@@ -126,6 +128,7 @@ const getByRoleSchema = baseCommandSchema.extend({
   action: z.literal('getbyrole'),
   role: z.string().min(1),
   name: z.string().optional(),
+  exact: z.boolean().optional(),
   subaction: z.enum(['click', 'fill', 'check', 'hover']),
   value: z.string().optional(),
 });
@@ -140,6 +143,7 @@ const getByTextSchema = baseCommandSchema.extend({
 const getByLabelSchema = baseCommandSchema.extend({
   action: z.literal('getbylabel'),
   label: z.string().min(1),
+  exact: z.boolean().optional(),
   subaction: z.enum(['click', 'fill', 'check']),
   value: z.string().optional(),
 });
@@ -147,6 +151,7 @@ const getByLabelSchema = baseCommandSchema.extend({
 const getByPlaceholderSchema = baseCommandSchema.extend({
   action: z.literal('getbyplaceholder'),
   placeholder: z.string().min(1),
+  exact: z.boolean().optional(),
   subaction: z.enum(['click', 'fill']),
   value: z.string().optional(),
 });
@@ -384,6 +389,32 @@ const stateSaveSchema = baseCommandSchema.extend({
 const stateLoadSchema = baseCommandSchema.extend({
   action: z.literal('state_load'),
   path: z.string().min(1),
+});
+
+const stateListSchema = baseCommandSchema.extend({
+  action: z.literal('state_list'),
+});
+
+const stateClearSchema = baseCommandSchema.extend({
+  action: z.literal('state_clear'),
+  sessionName: z.string().optional(),
+  all: z.boolean().optional(),
+});
+
+const stateShowSchema = baseCommandSchema.extend({
+  action: z.literal('state_show'),
+  filename: z.string().min(1),
+});
+
+const stateCleanSchema = baseCommandSchema.extend({
+  action: z.literal('state_clean'),
+  days: z.number().int().positive(),
+});
+
+const stateRenameSchema = baseCommandSchema.extend({
+  action: z.literal('state_rename'),
+  oldName: z.string().min(1),
+  newName: z.string().min(1),
 });
 
 const consoleSchema = baseCommandSchema.extend({
@@ -715,6 +746,7 @@ const screenshotSchema = baseCommandSchema.extend({
 const snapshotSchema = baseCommandSchema.extend({
   action: z.literal('snapshot'),
   interactive: z.boolean().optional(),
+  cursor: z.boolean().optional(),
   maxDepth: z.number().nonnegative().optional(),
   compact: z.boolean().optional(),
   selector: z.string().optional(),
@@ -867,6 +899,11 @@ const commandSchema = z.discriminatedUnion('action', [
   harStopSchema,
   stateSaveSchema,
   stateLoadSchema,
+  stateListSchema,
+  stateClearSchema,
+  stateShowSchema,
+  stateCleanSchema,
+  stateRenameSchema,
   consoleSchema,
   errorsSchema,
   keyboardSchema,

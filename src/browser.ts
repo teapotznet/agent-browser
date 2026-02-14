@@ -16,9 +16,16 @@ import {
 } from 'playwright-core';
 import path from 'node:path';
 import os from 'node:os';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import type { LaunchCommand } from './types.js';
 import { type RefMap, type EnhancedSnapshot, getEnhancedSnapshot, parseRef } from './snapshot.js';
+import { safeHeaderMerge } from './state-utils.js';
+import {
+  getEncryptionKey,
+  isEncryptedPayload,
+  decryptData,
+  ENCRYPTION_KEY_ENV,
+} from './state-utils.js';
 
 // Screencast frame data from CDP
 export interface ScreencastFrame {
@@ -102,6 +109,16 @@ export class BrowserManager {
   private recordingPage: Page | null = null;
   private recordingOutputPath: string = '';
   private recordingTempDir: string = '';
+  private launchWarnings: string[] = [];
+
+  /**
+   * Get and clear launch warnings (e.g., decryption failures)
+   */
+  getAndClearWarnings(): string[] {
+    const warnings = this.launchWarnings;
+    this.launchWarnings = [];
+    return warnings;
+  }
 
   /**
    * Check if browser is launched
@@ -188,6 +205,43 @@ export class BrowserManager {
     // Otherwise treat as regular selector
     const page = this.getPage();
     return page.locator(selectorOrRef);
+  }
+
+  /**
+   * Check if the browser has any usable pages
+   */
+  hasPages(): boolean {
+    return this.pages.length > 0;
+  }
+
+  /**
+   * Ensure at least one page exists. If the browser is launched but all pages
+   * were closed (stale session), creates a new page on the existing context.
+   * No-op if pages already exist.
+   */
+  async ensurePage(): Promise<void> {
+    if (this.pages.length > 0) return;
+    if (!this.browser && !this.isPersistentContext) return;
+
+    // Use the last existing context, or create a new one
+    let context: BrowserContext;
+    if (this.contexts.length > 0) {
+      context = this.contexts[this.contexts.length - 1];
+    } else if (this.browser) {
+      context = await this.browser.newContext();
+      context.setDefaultTimeout(60000);
+      this.contexts.push(context);
+      this.setupContextTracking(context);
+    } else {
+      return;
+    }
+
+    const page = await context.newPage();
+    if (!this.pages.includes(page)) {
+      this.pages.push(page);
+      this.setupPageTracking(page);
+    }
+    this.activePageIndex = this.pages.length - 1;
   }
 
   /**
@@ -570,10 +624,7 @@ export class BrowserManager {
     const handler = async (route: Route) => {
       const requestHeaders = route.request().headers();
       await route.continue({
-        headers: {
-          ...requestHeaders,
-          ...headers,
-        },
+        headers: safeHeaderMerge(requestHeaders, headers),
       });
     };
 
@@ -632,6 +683,13 @@ export class BrowserManager {
     if (context) {
       await context.tracing.stop({ path });
     }
+  }
+
+  /**
+   * Get the current browser context (first context)
+   */
+  getContext(): BrowserContext | null {
+    return this.contexts[0] ?? null;
   }
 
   /**
@@ -1045,10 +1103,14 @@ export class BrowserManager {
 
     if (this.isLaunched()) {
       const needsRelaunch =
-        (!cdpEndpoint && this.cdpEndpoint !== null) ||
-        (!!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint));
+        (!cdpEndpoint && !options.autoConnect && this.cdpEndpoint !== null) ||
+        (!!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint)) ||
+        (!!options.autoConnect && !this.isCdpConnectionAlive());
       if (needsRelaunch) {
         await this.close();
+      } else if (options.autoConnect && this.isCdpConnectionAlive()) {
+        // Already connected via auto-connect, no need to reconnect
+        return;
       } else {
         return;
       }
@@ -1056,6 +1118,11 @@ export class BrowserManager {
 
     if (cdpEndpoint) {
       await this.connectViaCDP(cdpEndpoint);
+      return;
+    }
+
+    if (options.autoConnect) {
+      await this.autoConnectViaCDP();
       return;
     }
 
@@ -1148,13 +1215,81 @@ export class BrowserManager {
         args: baseArgs,
       });
       this.cdpEndpoint = null;
+
+      // Check for auto-load state file (supports encrypted files)
+      let storageState:
+        | string
+        | {
+            cookies: Array<{
+              name: string;
+              value: string;
+              domain: string;
+              path: string;
+              expires: number;
+              httpOnly: boolean;
+              secure: boolean;
+              sameSite: 'Strict' | 'Lax' | 'None';
+            }>;
+            origins: Array<{
+              origin: string;
+              localStorage: Array<{ name: string; value: string }>;
+            }>;
+          }
+        | undefined = options.storageState ? options.storageState : undefined;
+
+      if (!storageState && options.autoStateFilePath) {
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(options.autoStateFilePath)) {
+            const content = fs.readFileSync(options.autoStateFilePath, 'utf8');
+            const parsed = JSON.parse(content);
+
+            if (isEncryptedPayload(parsed)) {
+              const key = getEncryptionKey();
+              if (key) {
+                try {
+                  const decrypted = decryptData(parsed, key);
+                  storageState = JSON.parse(decrypted);
+                  if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                    console.error(
+                      `[DEBUG] Auto-loading session state (decrypted): ${options.autoStateFilePath}`
+                    );
+                  }
+                } catch (decryptErr) {
+                  const warning =
+                    'Failed to decrypt state file - wrong encryption key? Starting fresh.';
+                  this.launchWarnings.push(warning);
+                  console.error(`[WARN] ${warning}`);
+                  if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                    console.error(`[DEBUG] Decryption error:`, decryptErr);
+                  }
+                }
+              } else {
+                const warning = `State file is encrypted but ${ENCRYPTION_KEY_ENV} not set - starting fresh`;
+                this.launchWarnings.push(warning);
+                console.error(`[WARN] ${warning}`);
+              }
+            } else {
+              storageState = options.autoStateFilePath;
+              if (process.env.AGENT_BROWSER_DEBUG === '1') {
+                console.error(`[DEBUG] Auto-loading session state: ${options.autoStateFilePath}`);
+              }
+            }
+          }
+        } catch (err) {
+          if (process.env.AGENT_BROWSER_DEBUG === '1') {
+            console.error(`[DEBUG] Failed to load state file, starting fresh:`, err);
+          }
+        }
+      }
+
       context = await this.browser.newContext({
         viewport,
         extraHTTPHeaders: options.headers,
         userAgent: options.userAgent,
+        storageState,
         ...(options.proxy && { proxy: options.proxy }),
         ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
-        ...(options.storageState && { storageState: options.storageState }),
       });
     }
 
@@ -1247,6 +1382,141 @@ export class BrowserManager {
   }
 
   /**
+   * Get Chrome's default user data directory paths for the current platform.
+   * Returns an array of candidate paths to check (stable, then beta/canary).
+   */
+  private getChromeUserDataDirs(): string[] {
+    const home = os.homedir();
+    const platform = os.platform();
+
+    if (platform === 'darwin') {
+      return [
+        path.join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
+        path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary'),
+        path.join(home, 'Library', 'Application Support', 'Chromium'),
+      ];
+    } else if (platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local');
+      return [
+        path.join(localAppData, 'Google', 'Chrome', 'User Data'),
+        path.join(localAppData, 'Google', 'Chrome SxS', 'User Data'),
+        path.join(localAppData, 'Chromium', 'User Data'),
+      ];
+    } else {
+      // Linux
+      return [
+        path.join(home, '.config', 'google-chrome'),
+        path.join(home, '.config', 'google-chrome-unstable'),
+        path.join(home, '.config', 'chromium'),
+      ];
+    }
+  }
+
+  /**
+   * Try to read the DevToolsActivePort file from a Chrome user data directory.
+   * Returns { port, wsPath } if found, or null if not available.
+   */
+  private readDevToolsActivePort(userDataDir: string): { port: number; wsPath: string } | null {
+    const filePath = path.join(userDataDir, 'DevToolsActivePort');
+    try {
+      if (!existsSync(filePath)) return null;
+      const content = readFileSync(filePath, 'utf-8').trim();
+      const lines = content.split('\n');
+      if (lines.length < 2) return null;
+
+      const port = parseInt(lines[0].trim(), 10);
+      const wsPath = lines[1].trim();
+
+      if (isNaN(port) || port <= 0 || port > 65535) return null;
+      if (!wsPath) return null;
+
+      return { port, wsPath };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Try to discover a Chrome CDP endpoint by querying an HTTP debug port.
+   * Returns the WebSocket debugger URL if available.
+   */
+  private async probeDebugPort(port: number): Promise<string | null> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as { webSocketDebuggerUrl?: string };
+      return data.webSocketDebuggerUrl ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Auto-discover and connect to a running Chrome/Chromium instance.
+   *
+   * Discovery strategy:
+   * 1. Read DevToolsActivePort from Chrome's default user data directories
+   * 2. If found, connect using the port and WebSocket path from that file
+   * 3. If not found, probe common debugging ports (9222, 9229)
+   * 4. If a port responds, connect via CDP
+   */
+  private async autoConnectViaCDP(): Promise<void> {
+    // Strategy 1: Check DevToolsActivePort files
+    const userDataDirs = this.getChromeUserDataDirs();
+    for (const dir of userDataDirs) {
+      const activePort = this.readDevToolsActivePort(dir);
+      if (activePort) {
+        // Verify the port is actually responding
+        const wsUrl = await this.probeDebugPort(activePort.port);
+        if (wsUrl) {
+          // Connect using the discovered WebSocket URL
+          await this.connectViaCDP(wsUrl);
+          return;
+        }
+        // Port from file exists but not responding; try HTTP endpoint directly
+        const httpUrl = `http://127.0.0.1:${activePort.port}`;
+        try {
+          await this.connectViaCDP(httpUrl);
+          return;
+        } catch {
+          // Port listed but not connectable, try next directory
+        }
+      }
+    }
+
+    // Strategy 2: Probe common debugging ports
+    const commonPorts = [9222, 9229];
+    for (const port of commonPorts) {
+      const wsUrl = await this.probeDebugPort(port);
+      if (wsUrl) {
+        await this.connectViaCDP(wsUrl);
+        return;
+      }
+    }
+
+    // Nothing found
+    const platform = os.platform();
+    let hint: string;
+    if (platform === 'darwin') {
+      hint =
+        'Start Chrome with: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    } else if (platform === 'win32') {
+      hint =
+        'Start Chrome with: chrome.exe --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    } else {
+      hint =
+        'Start Chrome with: google-chrome --remote-debugging-port=9222\n' +
+        'Or enable remote debugging in Chrome 144+ at chrome://inspect/#remote-debugging';
+    }
+
+    throw new Error(`No running Chrome instance with remote debugging found.\n${hint}`);
+  }
+
+  /**
    * Set up console, error, and close tracking for a page
    */
   private setupPageTracking(page: Page): void {
@@ -1278,7 +1548,7 @@ export class BrowserManager {
 
   /**
    * Set up tracking for new pages in a context (for CDP connections and popups/new tabs)
-   * This handles pages created externally (e.g., via target="_blank" links)
+   * This handles pages created externally (e.g., via target="_blank" links, window.open)
    */
   private setupContextTracking(context: BrowserContext): void {
     context.on('page', (page) => {
@@ -1286,6 +1556,17 @@ export class BrowserManager {
       if (!this.pages.includes(page)) {
         this.pages.push(page);
         this.setupPageTracking(page);
+      }
+
+      // Auto-switch to the newly opened tab so subsequent commands target it.
+      // For tabs created via newTab()/newWindow(), this is redundant (they set activePageIndex after),
+      // but for externally opened tabs (window.open, target="_blank"), this ensures the active tab
+      // stays in sync with the browser.
+      const newIndex = this.pages.indexOf(page);
+      if (newIndex !== -1 && newIndex !== this.activePageIndex) {
+        this.activePageIndex = newIndex;
+        // Invalidate CDP session since the active page changed
+        this.invalidateCDPSession().catch(() => {});
       }
     });
   }

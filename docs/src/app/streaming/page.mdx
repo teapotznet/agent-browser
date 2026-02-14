@@ -1,32 +1,31 @@
-import { CodeBlock } from "@/components/code-block";
+export const metadata = { title: "Streaming" }
 
-export default function Streaming() {
-  return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-      <div className="prose">
-        <h1>Streaming</h1>
-        <p>
-          Stream the browser viewport via WebSocket for live preview or &quot;pair browsing&quot;
-          where a human can watch and interact alongside an AI agent.
-        </p>
+# Streaming
 
-        <h2>Enable streaming</h2>
-        <p>
-          Set the <code>AGENT_BROWSER_STREAM_PORT</code> environment variable to start
-          a WebSocket server:
-        </p>
-        <CodeBlock code={`AGENT_BROWSER_STREAM_PORT=9223 agent-browser open example.com`} />
+Stream the browser viewport via WebSocket for live preview or "pair browsing"
+where a human can watch and interact alongside an AI agent.
 
-        <p>
-          The server streams viewport frames and accepts input events (mouse, keyboard, touch).
-        </p>
+## Enable streaming
 
-        <h2>WebSocket protocol</h2>
-        <p>Connect to <code>ws://localhost:9223</code> to receive frames and send input.</p>
+Set the `AGENT_BROWSER_STREAM_PORT` environment variable to start
+a WebSocket server:
 
-        <h3>Frame messages</h3>
-        <p>The server sends frame messages with base64-encoded images:</p>
-        <CodeBlock code={`{
+```bash
+AGENT_BROWSER_STREAM_PORT=9223 agent-browser open example.com
+```
+
+The server streams viewport frames and accepts input events (mouse, keyboard, touch).
+
+## WebSocket protocol
+
+Connect to `ws://localhost:9223` to receive frames and send input.
+
+### Frame messages
+
+The server sends frame messages with base64-encoded images:
+
+```json
+{
   "type": "frame",
   "data": "<base64-encoded-jpeg>",
   "metadata": {
@@ -37,23 +36,31 @@ export default function Streaming() {
     "scrollOffsetX": 0,
     "scrollOffsetY": 0
   }
-}`} />
+}
+```
 
-        <h3>Status messages</h3>
-        <p>Connection and screencast status:</p>
-        <CodeBlock code={`{
+### Status messages
+
+Connection and screencast status:
+
+```json
+{
   "type": "status",
   "connected": true,
   "screencasting": true,
   "viewportWidth": 1280,
   "viewportHeight": 720
-}`} />
+}
+```
 
-        <h2>Input injection</h2>
-        <p>Send input events to control the browser remotely.</p>
+## Input injection
 
-        <h3>Mouse events</h3>
-        <CodeBlock code={`// Click
+Send input events to control the browser remotely.
+
+### Mouse events
+
+```json
+// Click
 {
   "type": "input_mouse",
   "eventType": "mousePressed",
@@ -88,10 +95,13 @@ export default function Streaming() {
   "y": 200,
   "deltaX": 0,
   "deltaY": 100
-}`} />
+}
+```
 
-        <h3>Keyboard events</h3>
-        <CodeBlock code={`// Key down
+### Keyboard events
+
+```json
+// Key down
 {
   "type": "input_keyboard",
   "eventType": "keyDown",
@@ -121,10 +131,13 @@ export default function Streaming() {
   "key": "c",
   "code": "KeyC",
   "modifiers": 2
-}`} />
+}
+```
 
-        <h3>Touch events</h3>
-        <CodeBlock code={`// Touch start
+### Touch events
+
+```json
+// Touch start
 {
   "type": "input_touch",
   "eventType": "touchStart",
@@ -153,11 +166,15 @@ export default function Streaming() {
     { "x": 100, "y": 200, "id": 0 },
     { "x": 200, "y": 200, "id": 1 }
   ]
-}`} />
+}
+```
 
-        <h2>Programmatic API</h2>
-        <p>For advanced use, control streaming directly via the TypeScript API:</p>
-        <CodeBlock code={`import { BrowserManager } from 'agent-browser';
+## Programmatic API
+
+For advanced use, control streaming directly via the TypeScript API:
+
+```typescript
+import { BrowserManager } from 'agent-browser';
 
 const browser = new BrowserManager();
 await browser.launch({ headless: true });
@@ -201,17 +218,13 @@ await browser.injectTouchEvent({
 console.log('Active:', browser.isScreencasting());
 
 // Stop screencast
-await browser.stopScreencast();`} />
+await browser.stopScreencast();
+```
 
-        <h2>Use cases</h2>
-        <ul>
-          <li><strong>Pair browsing</strong> - Human watches and assists AI agent in real-time</li>
-          <li><strong>Remote preview</strong> - View browser output in a separate UI</li>
-          <li><strong>Recording</strong> - Capture frames for video generation</li>
-          <li><strong>Mobile testing</strong> - Inject touch events for mobile emulation</li>
-          <li><strong>Accessibility testing</strong> - Manual interaction during automated tests</li>
-        </ul>
-      </div>
-    </div>
-  );
-}
+## Use cases
+
+- **Pair browsing** - Human watches and assists AI agent in real-time
+- **Remote preview** - View browser output in a separate UI
+- **Recording** - Capture frames for video generation
+- **Mobile testing** - Inject touch events for mobile emulation
+- **Accessibility testing** - Manual interaction during automated tests

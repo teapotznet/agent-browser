@@ -1,5 +1,29 @@
 # agent-browser
 
+## 0.10.0
+
+### Minor Changes
+
+- 1112a16: Added session persistence with automatic save/restore of cookies and localStorage across browser restarts using --session-name flag, with optional AES-256-GCM encryption for saved state data. New state management commands allow listing, showing, renaming, clearing, and cleaning up old session files. Also added --new-tab option for click commands to open links in new tabs.
+
+## 0.9.4
+
+### Patch Changes
+
+- 323b6cd: Fix all Clippy lint warnings in the Rust CLI: remove redundant import, use `.first()` instead of `.get(0)`, use `.copied()` instead of `.map(|s| *s)`, use `.contains()` instead of `.iter().any()`, use `then_some` instead of lazy `then`, and simplify redundant match guards.
+
+## 0.9.3
+
+### Patch Changes
+
+- d03e238: Added support for custom executable path in CLI browser launch options. Documentation site received UI improvements including a new chat component with sheet-based interface and updated dependencies.
+
+## 0.9.2
+
+### Patch Changes
+
+- 76d23db: Documentation site migrated to MDX for improved content authoring, added AI-powered docs chat feature, and updated README with Homebrew installation instructions for macOS users.
+
 ## 0.9.1
 
 ### Patch Changes

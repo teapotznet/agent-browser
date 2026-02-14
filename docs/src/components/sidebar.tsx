@@ -27,7 +27,7 @@ export function Sidebar() {
       {/* Mobile overlay */}
       {isOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/80"
+          className="lg:hidden fixed inset-0 z-40 bg-background/80"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -37,7 +37,7 @@ export function Sidebar() {
         className={`
           fixed lg:sticky top-14 left-0 z-50 lg:z-auto
           w-56 lg:w-48 h-[calc(100vh-3.5rem)]
-          bg-black
+          bg-background
           transform transition-transform duration-150 ease-out
           ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
@@ -53,8 +53,8 @@ export function Sidebar() {
                   href={item.href}
                   className={`block px-2 py-1.5 text-sm transition-colors ${
                     isActive
-                      ? "text-white"
-                      : "text-[#666] hover:text-[#999]"
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {item.name}

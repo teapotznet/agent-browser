@@ -16,6 +16,7 @@ export interface LaunchCommand extends BaseCommand {
   executablePath?: string;
   cdpPort?: number;
   cdpUrl?: string;
+  autoConnect?: boolean; // Auto-discover and connect to running Chrome via DevToolsActivePort
   extensions?: string[];
   profile?: string; // Path to persistent browser profile directory
   storageState?: string; // Path to storage state JSON file
@@ -30,6 +31,8 @@ export interface LaunchCommand extends BaseCommand {
   provider?: string;
   ignoreHTTPSErrors?: boolean;
   allowFileAccess?: boolean; // Enable file:// URL access and cross-origin file requests
+  // Auto-load state file for session persistence
+  autoStateFilePath?: string;
 }
 
 export interface NavigateCommand extends BaseCommand {
@@ -45,6 +48,7 @@ export interface ClickCommand extends BaseCommand {
   button?: 'left' | 'right' | 'middle';
   clickCount?: number;
   delay?: number;
+  newTab?: boolean;
 }
 
 export interface TypeCommand extends BaseCommand {
@@ -108,6 +112,7 @@ export interface GetByRoleCommand extends BaseCommand {
   action: 'getbyrole';
   role: string;
   name?: string;
+  exact?: boolean;
   subaction: 'click' | 'fill' | 'check' | 'hover';
   value?: string;
 }
@@ -122,6 +127,7 @@ export interface GetByTextCommand extends BaseCommand {
 export interface GetByLabelCommand extends BaseCommand {
   action: 'getbylabel';
   label: string;
+  exact?: boolean;
   subaction: 'click' | 'fill' | 'check';
   value?: string;
 }
@@ -129,6 +135,7 @@ export interface GetByLabelCommand extends BaseCommand {
 export interface GetByPlaceholderCommand extends BaseCommand {
   action: 'getbyplaceholder';
   placeholder: string;
+  exact?: boolean;
   subaction: 'click' | 'fill';
   value?: string;
 }
@@ -593,6 +600,33 @@ export interface StorageStateLoadCommand extends BaseCommand {
   path: string;
 }
 
+// State management commands (v2)
+export interface StateListCommand extends BaseCommand {
+  action: 'state_list';
+}
+
+export interface StateClearCommand extends BaseCommand {
+  action: 'state_clear';
+  sessionName?: string;
+  all?: boolean;
+}
+
+export interface StateShowCommand extends BaseCommand {
+  action: 'state_show';
+  filename: string;
+}
+
+export interface StateCleanCommand extends BaseCommand {
+  action: 'state_clean';
+  days: number;
+}
+
+export interface StateRenameCommand extends BaseCommand {
+  action: 'state_rename';
+  oldName: string;
+  newName: string;
+}
+
 // Console logs
 export interface ConsoleCommand extends BaseCommand {
   action: 'console';
@@ -894,6 +928,11 @@ export type Command =
   | HarStopCommand
   | StorageStateSaveCommand
   | StorageStateLoadCommand
+  | StateListCommand
+  | StateClearCommand
+  | StateShowCommand
+  | StateCleanCommand
+  | StateRenameCommand
   | ConsoleCommand
   | ErrorsCommand
   | KeyboardCommand

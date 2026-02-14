@@ -203,6 +203,7 @@ pub struct DaemonResult {
     pub already_running: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn ensure_daemon(
     session: &str,
     headed: bool,
@@ -218,6 +219,7 @@ pub fn ensure_daemon(
     state: Option<&str>,
     provider: Option<&str>,
     device: Option<&str>,
+    session_name: Option<&str>,
 ) -> Result<DaemonResult, String> {
     // Check if daemon is running AND responsive
     if is_daemon_running(session) && daemon_ready(session) {
@@ -358,6 +360,10 @@ pub fn ensure_daemon(
             cmd.env("AGENT_BROWSER_IOS_DEVICE", d);
         }
 
+        if let Some(sn) = session_name {
+            cmd.env("AGENT_BROWSER_SESSION_NAME", sn);
+        }
+
         // Create new process group and session to fully detach
         unsafe {
             cmd.pre_exec(|| {
@@ -435,6 +441,10 @@ pub fn ensure_daemon(
 
         if let Some(d) = device {
             cmd.env("AGENT_BROWSER_IOS_DEVICE", d);
+        }
+
+        if let Some(sn) = session_name {
+            cmd.env("AGENT_BROWSER_SESSION_NAME", sn);
         }
 
         // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS

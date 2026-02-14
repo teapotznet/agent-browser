@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
 import { MobileNavProvider } from "@/components/mobile-nav-context";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
+import { DocsChat } from "@/components/docs-chat";
+import { cookies } from "next/headers";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 
 const geist = Geist({
   variable: "--font-geist",
@@ -20,25 +25,47 @@ export const metadata: Metadata = {
   description: "Headless browser automation CLI for AI agents",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const chatOpen = cookieStore.get("docs-chat-open")?.value === "true";
+  const chatWidth = Number(cookieStore.get("docs-chat-width")?.value) || 400;
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {chatOpen && (
+          <style
+            dangerouslySetInnerHTML={{
+              __html: `@media(min-width:640px){body{padding-right:${chatWidth}px}}`,
+            }}
+          />
+        )}
+      </head>
       <body
-        className={`${geist.variable} ${geistMono.variable} antialiased bg-zinc-950 text-zinc-100`}
+        className={`${geist.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        <MobileNavProvider>
-          <Header />
-          <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <Sidebar />
-            <main className="flex-1 overflow-auto">
-              {children}
-            </main>
-          </div>
-        </MobileNavProvider>
+        <ThemeProvider>
+          <MobileNavProvider>
+            <Header />
+            <div className="flex min-h-[calc(100vh-3.5rem)]">
+              <Sidebar />
+              <main className="flex-1 overflow-auto">
+                <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+                  <div className="prose">
+                    {children}
+                  </div>
+                </div>
+              </main>
+            </div>
+            <DocsChat defaultOpen={chatOpen} defaultWidth={chatWidth} />
+          </MobileNavProvider>
+        </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
